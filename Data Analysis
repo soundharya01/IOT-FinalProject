@@ -10,7 +10,7 @@ import pandas as pd
 app = Flask(__name__)
 
 # InfluxDB Credentials
-INFLUXDB_URL = 'https://us-west-2-1.aws.cloud2.influxdata.com'
+INFLUXDB_URL = 'https://iot-group6-service1.iotcloudserve.net'
 TOKEN = 'anC4AQca7Tu9XCxJn7l983g1at2JcBYyQ-x482LeIbUqsUI7LanQWdxxu8bjou13V_813n5JR4ZN8Ik2KUOzTA=='
 ORG = 'Group_6'
 BUCKET = 'Group_6'
