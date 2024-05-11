@@ -1,9 +1,16 @@
+import os
+
+# Set the path to the git executable
+os.environ['GIT_PYTHON_GIT_EXECUTABLE'] = r'C:\Program Files\Git\cmd\git.exe'
+
+import git
 from flask import Flask, request, jsonify
 from influxdb_client import InfluxDBClient
-from sklearn.ensemble import RandomForestClassifier
-import pandas as pd
 import numpy as np
-import git
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LinearRegression
+import joblib
 
 app = Flask(__name__)
 
@@ -39,28 +46,54 @@ def add_data():
     else:
         return jsonify({"error": "No data provided"}), 400
 
+
 # Route for training machine learning model
 @app.route('/train_model', methods=['POST'])
 def train_model():
     global sensor_data
     if len(sensor_data) >= 100:
-        X = sensor_data.drop(columns=['target_variable'])
-        y = sensor_data['target_variable']
+        # Load your dataset from CSV
+        dataset = pd.read_csv("BMP_temp.csv")
 
-        # Train the model
-        model = RandomForestClassifier()
-        model.fit(X, y)
+        # Assuming your dataset has columns "time" and "BMP280_temp"
+        # Convert "time" to datetime format
+        dataset['time'] = pd.to_datetime(dataset['time'])
+
+        # Sort dataset by time (if not already sorted)
+        dataset.sort_values(by='time', inplace=True)
+
+        # Assuming you want to keep the latest 500 records
+        dataset = dataset.tail(500)
+
+        # Drop any rows with missing values
+        dataset.dropna(inplace=True)
+
+        # Extract features and target variable
+        x_label = np.array(dataset['BMP280_temp']).reshape(-1, 1)
+        y_label = np.array(dataset['target_variable']).reshape(-1, 1)  # You need to define the target variable
+
+        # Split dataset into train and test sets
+        x_train, x_test, y_train, y_test = train_test_split(x_label, y_label, test_size=0.2, random_state=100)
+
+        # Initialize and train linear regression model
+        regression_model = LinearRegression()
+        regression_model.fit(x_train, y_train)
+
+        # Save the trained model
+        joblib.dump(regression_model, 'regression_model.pkl')
+
+        # Save the columns used by the model (if needed)
+        regression_model_columns = ['BMP280_temp']  # Adjust accordingly
+        joblib.dump(regression_model_columns, 'regression_model_columns.pkl')
 
         # Define objectives for the analysis
-        objectives = "To predict target_variable based on sensor readings."
+        objectives = "To predict T_degC based on BMP280 temperature readings."
 
-        # Initialize Git repository
-        repo = git.Repo.init('.')
-        git_repo = git.Git(repo.working_dir)
-
-        # Commit changes with a meaningful message
-        git_repo.add(all=True)
-        git_repo.commit('-m', 'Added data, trained model, and defined objectives.')
+        # Initialize Git repository (if needed)
+        # repo = git.Repo.init('.')
+        # git_repo = git.Git(repo.working_dir)
+        # git_repo.add(all=True)
+        # git_repo.commit('-m', 'Trained linear regression model and defined objectives.')
 
         return jsonify({"message": "Model trained successfully", "objectives": objectives}), 200
     else:
@@ -75,7 +108,7 @@ def predict():
         new_data = pd.DataFrame(req_data, index=[0])  # Convert request data to DataFrame
         X_new = new_data.drop(columns=['target_variable'])  # Extract features
         # Load the trained model from disk
-        model = RandomForestClassifier()  # Load your trained model here
+        model = joblib.load('regression_model.pkl')  # Load your trained model here
         # Make predictions
         predictions = model.predict(X_new)
         return jsonify({"predictions": predictions.tolist()}), 200
