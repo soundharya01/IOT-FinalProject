@@ -2,10 +2,10 @@ from flask import Flask, request, jsonify
 from influxdb_client import InfluxDBClient, Point, WriteOptions
 from influxdb_client.client.write_api import SYNCHRONOUS
 import paho.mqtt.client as mqtt
-import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score
+import pandas as pd
 
 app = Flask(__name__)
 
@@ -24,6 +24,10 @@ influxdb_client = InfluxDBClient(url=INFLUXDB_URL, token=TOKEN)
 
 # Initialize MQTT client
 mqtt_client = mqtt.Client()
+
+# Initialize an empty DataFrame to store sensor data
+sensor_data = pd.DataFrame(
+    columns=['SHT4xTemperature', 'SHT4xHumidity', 'BMP280Temperature', 'BMP280Pressure', 'target_variable'])
 
 
 # Default Route
@@ -45,59 +49,40 @@ def get_data():
 # Route for handling POST requests
 @app.route('/add_data', methods=['POST'])
 def add_data():
+    global sensor_data
     req_data = request.get_json()
     if req_data:
-        # Write data to InfluxDB
-        write_api = influxdb_client.write_api(
-            write_options=WriteOptions(batch_size=500, flush_interval=10_000, jitter_interval=2_000,
-                                       retry_interval=5_000))
-        point = Point("measurement").field("value", req_data["value"])
-        write_api.write(BUCKET, ORG, point)
-
-        # Train a machine learning model
-        train_model()
-
-        # Make predictions on the new data
-        prediction = predict(req_data)
-
-        # Publish prediction to MQTT topic
-        mqtt_client.connect(MQTT_BROKER_IP)
-        mqtt_client.publish(MQTT_TOPIC, prediction)
-        mqtt_client.disconnect()
-
-        return jsonify({"message": "Data added successfully", "prediction": prediction})
+        # Append data to sensor_data DataFrame
+        sensor_data = sensor_data.append(req_data, ignore_index=True)
+        return jsonify({"message": "Data added successfully"})
     else:
         return jsonify({"error": "No data provided"}), 400
 
 
+# Train machine learning model route
+@app.route('/train_model', methods=['POST'])
 def train_model():
-    # Load data from InfluxDB for training
-    query = f'from(bucket: "{BUCKET}") |> range(start: -1d)'
-    result = influxdb_client.query_api().query(query, org=ORG)
-    data = result.to_dataframe()
+    global sensor_data
+    if len(sensor_data) >= 100:
+        # Split data into features and target variable
+        X = sensor_data.drop(columns=['target_variable'])
+        y = sensor_data['target_variable']
 
-    # Perform data preprocessing and feature engineering as needed
-    # For example, convert timestamp to datetime, handle missing values, encode categorical variables, etc.
+        # Split data into train and test sets
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-    # Split data into features and target variable
-    X = data.drop(columns=["target_variable"])
-    y = data["target_variable"]
+        # Train the model
+        model = RandomForestClassifier()
+        model.fit(X_train, y_train)
 
-    # Split data into train and test sets
-    X_train, _, y_train, _ = train_test_split(X, y, test_size=0.2, random_state=42)
+        # Make predictions on the test set
+        y_pred = model.predict(X_test)
 
-    # Train a machine learning model (e.g., RandomForestClassifier)
-    model = RandomForestClassifier()
-    model.fit(X_train, y_train)
-
-    # Optionally, save the trained model for future use
-
-
-def predict(new_data):
-    # Load the trained model (if not already loaded)
-    # Predict the target variable for the new data
-    # Return the prediction
-    return "prediction"
+        # Evaluate model performance
+        accuracy = accuracy_score(y_test, y_pred)
+        return jsonify({"message": f"Model trained successfully with accuracy: {accuracy}"})
+    else:
+        return jsonify({"error": "Insufficient data for training"}), 400
 
 
 if __name__ == '__main__':
