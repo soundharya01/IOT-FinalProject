@@ -1,11 +1,9 @@
 from flask import Flask, request, jsonify
-from influxdb_client import InfluxDBClient, Point, WriteOptions
-from influxdb_client.client.write_api import SYNCHRONOUS
-import paho.mqtt.client as mqtt
-from sklearn.model_selection import train_test_split
+from influxdb_client import InfluxDBClient
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score
 import pandas as pd
+import numpy as np
+import git
 
 app = Flask(__name__)
 
@@ -15,75 +13,74 @@ TOKEN = 'anC4AQca7Tu9XCxJn7l983g1at2JcBYyQ-x482LeIbUqsUI7LanQWdxxu8bjou13V_813n5
 ORG = 'Group_6'
 BUCKET = 'Group_6'
 
-# MQTT Broker Information
-MQTT_BROKER_IP = '192.168.26.66'
-MQTT_TOPIC = '@shadow/data/update'
-
 # Initialize InfluxDB client
 influxdb_client = InfluxDBClient(url=INFLUXDB_URL, token=TOKEN)
-
-# Initialize MQTT client
-mqtt_client = mqtt.Client()
 
 # Initialize an empty DataFrame to store sensor data
 sensor_data = pd.DataFrame(
     columns=['SHT4xTemperature', 'SHT4xHumidity', 'BMP280Temperature', 'BMP280Pressure', 'target_variable'])
 
-
-# Default Route
-@app.route('/')
-def hello():
-    return jsonify({"Status": "My API server is running"})
-
-
-# Route for handling GET requests
+# Route for handling GET requests for fetching data from InfluxDB
 @app.route('/get_data', methods=['GET'])
 def get_data():
-    # Fetch data from InfluxDB
     query = f'from(bucket: "{BUCKET}") |> range(start: -1h)'
     result = influxdb_client.query_api().query(query, org=ORG)
     data = result.to_dataframe()
     return jsonify(data.to_dict())
 
-
-# Route for handling POST requests
+# Route for handling POST requests for adding data
 @app.route('/add_data', methods=['POST'])
 def add_data():
     global sensor_data
     req_data = request.get_json()
     if req_data:
-        # Append data to sensor_data DataFrame
         sensor_data = sensor_data.append(req_data, ignore_index=True)
         return jsonify({"message": "Data added successfully"})
     else:
         return jsonify({"error": "No data provided"}), 400
 
-
-# Train machine learning model route
+# Route for training machine learning model
 @app.route('/train_model', methods=['POST'])
 def train_model():
     global sensor_data
     if len(sensor_data) >= 100:
-        # Split data into features and target variable
         X = sensor_data.drop(columns=['target_variable'])
         y = sensor_data['target_variable']
 
-        # Split data into train and test sets
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-
         # Train the model
         model = RandomForestClassifier()
-        model.fit(X_train, y_train)
+        model.fit(X, y)
 
-        # Make predictions on the test set
-        y_pred = model.predict(X_test)
+        # Define objectives for the analysis
+        objectives = "To predict target_variable based on sensor readings."
 
-        # Evaluate model performance
-        accuracy = accuracy_score(y_test, y_pred)
-        return jsonify({"message": f"Model trained successfully with accuracy: {accuracy}"})
+        # Initialize Git repository
+        repo = git.Repo.init('.')
+        git_repo = git.Git(repo.working_dir)
+
+        # Commit changes with a meaningful message
+        git_repo.add(all=True)
+        git_repo.commit('-m', 'Added data, trained model, and defined objectives.')
+
+        return jsonify({"message": "Model trained successfully", "objectives": objectives}), 200
     else:
         return jsonify({"error": "Insufficient data for training"}), 400
 
+# Route for real-time predictions
+@app.route('/predict', methods=['POST'])
+def predict():
+    global sensor_data
+    req_data = request.get_json()
+    if req_data:
+        new_data = pd.DataFrame(req_data, index=[0])  # Convert request data to DataFrame
+        X_new = new_data.drop(columns=['target_variable'])  # Extract features
+        # Load the trained model from disk
+        model = RandomForestClassifier()  # Load your trained model here
+        # Make predictions
+        predictions = model.predict(X_new)
+        return jsonify({"predictions": predictions.tolist()}), 200
+    else:
+        return jsonify({"error": "No data provided"}), 400
 
 if __name__ == '__main__':
     app.run()
