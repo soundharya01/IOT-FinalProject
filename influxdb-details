@@ -8,3 +8,14 @@ URl : https://iot-group6-service1.iotcloudserve.net
 serverIp( MQTT brocker ip) : 192.168.26.66
 Topic: @shadow/data/update
 influxdb-api : ELl32AOEoIN3PjZk-xdUzHVpqCjL7Xfvu8TYUUVRTknAhxOkB5kbjs7uxMiwRkwgmBVkIsQsi88jWjGcPd0Caw==
+
+
+
+For ML:
+Name : iot-group-6-ml
+Passcode : 6670058721
+Org: Group_6
+Bucket: Group_6
+Token : 6nM88sd8pimOd3SXaRJR0wdI-APYt6j1kfXfGYwyob1sbuBeWu8BlfUdsVIVy2-r_R4YFkQ3GC3MgidI3faa9A==
+
+URl : https://iot-group6-service2.iotcloudserve.net
