@@ -1,10 +1,11 @@
 import os
 
 # Set the path to the git executable
-os.environ['GIT_PYTHON_GIT_EXECUTABLE'] = r'C:\Program Files\Git\cmd\git.exe'
+#os.environ['GIT_PYTHON_GIT_EXECUTABLE'] = r'C:\Program Files\Git\cmd\git.exe'
 
-import git
+#import git
 from flask import Flask, request, jsonify
+from dotenv import load_dotenv
 from influxdb_client import InfluxDBClient
 import numpy as np
 import pandas as pd
@@ -12,13 +13,17 @@ from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LinearRegression
 import joblib
 
+
+# Load environment variables from ".env"
+load_dotenv()
+
 app = Flask(__name__)
 
 # InfluxDB Credentials
-INFLUXDB_URL = 'https://iot-group6-service1.iotcloudserve.net'
-TOKEN = 'anC4AQca7Tu9XCxJn7l983g1at2JcBYyQ-x482LeIbUqsUI7LanQWdxxu8bjou13V_813n5JR4ZN8Ik2KUOzTA=='
-ORG = 'Group_6'
-BUCKET = 'Group_6'
+INFLUXDB_URL = os.environ.get('INFLUXDB_URL')
+TOKEN = os.environ.get('INFLUXDB_TOKEN')
+ORG = os.environ.get('INFLUXDB_ORG')
+BUCKET = os.environ.get('INFLUXDB_BUCKET')
 
 # Initialize InfluxDB client
 influxdb_client = InfluxDBClient(url=INFLUXDB_URL, token=TOKEN)
@@ -116,4 +121,4 @@ def predict():
         return jsonify({"error": "No data provided"}), 400
 
 if __name__ == '__main__':
-    app.run()
+    app.run(host='0.0.0.0', port=5000)

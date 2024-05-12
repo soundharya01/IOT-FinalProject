@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  ml_application:
+    build:
+      context: ./dataAnalysis  # Specify the directory containing Dockerfile 1
+    ports:
+      - "5000:5000"  # Adjust ports as needed
+    volumes:
+      - ./:/app  # Mount the local directory to /app in the container
+    env_file:
+      - .env  # Include environment variables from .env file
+    networks:
+      - group_6
+
+  db_application:
+    build:
+      context: ./database  # Specify the directory containing Dockerfile 2
+    volumes:
+      - ./:/app  # Mount the local directory to /app in the container
+    env_file:
+      - .env  # Include environment variables from .env file
+    networks:
+      - group_6
+
+networks:
+  group_6:
+    driver: bridge
