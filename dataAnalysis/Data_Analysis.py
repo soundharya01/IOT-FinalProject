@@ -1,57 +1,84 @@
-# Importing relevant modules
-import joblib
-import pandas as pd
-from flask import Flask, jsonify
-from paho.mqtt.client import Client as MqttClient
-from dotenv import load_dotenv
-import os
-import json
+"""
+Consumer File
+Listen to the subscribed topic, store data in the database,
+and feed streaming data to the real-time prediction algorithm.
+"""
 
-# Load the trained model
-knn_model = joblib.load('knn_model.pkl')
-model_columns = joblib.load("knn_model_columns.pkl")
+# Importing relevant modules
+import os
+from dotenv import load_dotenv
+from influxdb_client import InfluxDBClient, Point
+from influxdb_client.client.write_api import ASYNCHRONOUS
+import paho.mqtt.client as mqtt
+import json
+import requests
 
 # Load environment variables from ".env"
 load_dotenv()
 
-# MQTT config
-MQTT_BROKER = os.environ.get('MQTT_URL')
-MQTT_TOPIC = os.environ.get('MQTT_PUBLISH_TOPIC')
-MQTT_PORT = int(os.environ.get('MQTT_PORT', 1883))
+# InfluxDB config
+BUCKET = os.environ.get('INFLUXDB_BUCKET')
+print("connecting to", os.environ.get('INFLUXDB_URL'))
+client = InfluxDBClient(
+    url=str(os.environ.get('INFLUXDB_URL')),
+    token=str(os.environ.get('INFLUXDB_TOKEN')),
+    org=os.environ.get('INFLUXDB_ORG')
+)
+write_api = client.write_api()
 
-# Create Flask app
-app = Flask(__name__)
+# MQTT broker config
+MQTT_BROKER_URL = os.environ.get('MQTT_URL')
+MQTT_PUBLISH_TOPIC = "@shadow/data/update"
+print("connecting to MQTT Broker", MQTT_BROKER_URL)
+mqttc = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+mqttc.connect(MQTT_BROKER_URL, 1883)
 
-# Create MQTT client
-mqtt_client = MqttClient(client_id="FlaskClient")
-mqtt_client.connect(MQTT_BROKER, MQTT_PORT)
+# REST API endpoint for predicting output
+predict_url = os.environ.get('PREDICT_URL')
 
-# Callback function for MQTT message
-def on_message(client, userdata, message):
-    try:
-        # Decode message payload
-        json_data = json.loads(message.payload.decode('utf-8'))
-        # Convert JSON data to DataFrame
-        query = pd.DataFrame([json_data])
-        # Extract features from data
-        feature_sample = query[model_columns]
-        # Predict using the model
-        predict_sample = knn_model.predict(feature_sample)
-        print("Predicted BMP280Temperature:", predict_sample[0])
 
-        # Optionally, you can save the predicted value to a database or return it as JSON
-        # For example, to return as JSON:
-        prediction_response = {"Predicted BMP280Temperature": float(predict_sample[0])}
-        app.response_class(response=json.dumps(prediction_response), status=200, mimetype='application/json')
+def on_connect(client, userdata, flags, rc, properties):
+    """ The callback for when the client connects to the broker."""
+    print("Connected with result code " + str(rc))
 
-    except Exception as e:
-        # Handle errors
-        print("Error:", str(e))
 
-# Set MQTT client callback
-mqtt_client.on_message = on_message
-mqtt_client.subscribe(MQTT_TOPIC)
-mqtt_client.loop_start()
+# Subscribe to a topic
+mqttc.subscribe(MQTT_PUBLISH_TOPIC)
 
-if __name__ == '__main__':
-    app.run(debug=False)
+
+def on_message(client, userdata, msg):
+    """ The callback for when a PUBLISH message is received from the server."""
+    print(msg.topic + " " + str(msg.payload))
+
+    # Write data in InfluxDB
+    payload = json.loads(msg.payload)
+    write_to_influxdb(payload)
+
+    # POST data to predict the output label
+    json_data = json.dumps(payload)
+    post_to_predict(json_data)
+
+
+# Function to post to real-time prediction endpoint
+def post_to_predict(data):
+    response = requests.post(predict_url, data=data)
+    if response.status_code == 200:
+        print("POST request successful")
+    else:
+        print("POST request failed!", response.status_code)
+
+# Function to write data to InfluxDB
+def write_to_influxdb(data):
+    # format data
+    point = Point("sensor_data") \
+        .field("SHT4xTemperature", data["SHT4xTemperature"]) \
+        .field("SHT4xHumidity", data["SHT4xHumidity"]) \
+        .field("BMP280Temperature", data["BMP280Temperature"]) \
+        .field("BMP280Pressure", data["BMP280Pressure"])
+
+    write_api.write(BUCKET, os.environ.get('INFLUXDB_ORG'), point)
+
+## MQTT logic - Register callbacks and start MQTT client
+mqttc.on_connect = on_connect
+mqttc.on_message = on_message
+mqttc.loop_forever()
